@@ -2,6 +2,8 @@
 
 A Next.js application for evaluating and visualizing RAG (Retrieval-Augmented Generation) systems. This application provides a user-friendly interface to test and analyze the performance of RAG implementations through various metrics and visualizations.
 
+This repo goes along with the Python Notebooks at https://github.com/xprilion/gemini-as-a-judge-for-rag-evals
+
 ## Features
 
 - Interactive chat interface for testing RAG systems
@@ -23,7 +25,7 @@ A Next.js application for evaluating and visualizing RAG (Retrieval-Augmented Ge
 - **Form Handling**: React Hook Form
 - **Data Visualization**: Recharts
 - **Date Handling**: date-fns
-- **AI Integration**: Vercel AI SDK
+- **AI Integration**: Gemini 2.0
 
 ## Getting Started
 
