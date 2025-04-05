@@ -18,7 +18,7 @@ export function Footer() {
             </Link>
             . The source code is available on{" "}
             <Link
-              href="https://github.com/xprilion/rag-evals-app"
+              href="https://github.com/xprilion/gemini-rag-evals-visualizer-app"
               target="_blank"
               rel="noreferrer"
               className="font-medium underline underline-offset-4"
@@ -30,7 +30,7 @@ export function Footer() {
         </div>
         <div className="flex items-center gap-4">
           <Link
-            href="https://github.com/xprilion/rag-evals-app"
+            href="https://github.com/xprilion/gemini-rag-evals-visualizer-app"
             target="_blank"
             rel="noreferrer"
             className="text-muted-foreground hover:text-foreground"

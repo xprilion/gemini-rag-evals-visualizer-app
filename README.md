@@ -37,8 +37,8 @@ A Next.js application for evaluating and visualizing RAG (Retrieval-Augmented Ge
 1. Clone the repository:
 
 ```bash
-git clone https://github.com/yourusername/rag-evals-app.git
-cd rag-evals-app
+git clone https://github.com/xprilion/gemini-rag-evals-visualizer-app.git
+cd gemini-rag-evals-visualizer-app
 ```
 
 2. Install dependencies:
@@ -58,7 +58,7 @@ The application will be available at `http://localhost:3000`.
 ## Project Structure
 
 ```
-rag-evals-app/
+gemini-rag-evals-visualizer-app/
 ├── app/                 # Next.js app directory
 │   ├── api/            # API routes
 │   ├── page.tsx        # Main page component
