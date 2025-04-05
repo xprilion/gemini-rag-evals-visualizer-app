@@ -63,7 +63,7 @@ export function ResponseDetailsModal({
                   {details.matchedSentences.map((sentence, index) => (
                     <div key={index} className="flex items-start gap-2">
                       <Badge variant="outline">
-                        {details.matchedIndexes[index]}
+                        {details.matchedIndexes[index] + 1}
                       </Badge>
                       <p className="text-sm">{sentence}</p>
                     </div>
@@ -108,7 +108,7 @@ export function ResponseDetailsModal({
                                 : "outline"
                             }
                           >
-                            {index}
+                            {index + 1}
                           </Badge>
                         ))}
                       </div>
