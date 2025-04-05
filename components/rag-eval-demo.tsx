@@ -169,7 +169,10 @@ export default function RagEvalDemo() {
   };
 
   const getInitialMessage = () => {
-    const apiKey = localStorage.getItem("geminiApiKey");
+    const apiKey =
+      typeof window !== "undefined"
+        ? localStorage.getItem("geminiApiKey")
+        : null;
     const steps = [
       {
         text: "1. Set your Gemini API key",
@@ -227,7 +230,10 @@ export default function RagEvalDemo() {
   const processQuery = async () => {
     if (!userQuery.trim() || !vectorized) return;
 
-    const apiKey = localStorage.getItem("geminiApiKey");
+    const apiKey =
+      typeof window !== "undefined"
+        ? localStorage.getItem("geminiApiKey")
+        : null;
     if (!apiKey) {
       alert("Please set your Gemini API key first");
       return;
