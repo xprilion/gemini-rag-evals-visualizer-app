@@ -13,29 +13,26 @@ interface ResponseDetails {
   matchedSentences: string[];
   matchedIndexes: number[];
   finalPrompt: string;
-}
-
-interface EvaluationComparison {
-  trueIndexes: number[];
-  predictedIndexes: number[];
-  intersection: number[];
-  precision: number;
-  recall: number;
-  f1: number;
+  evaluationComparison?: {
+    trueIndexes: number[];
+    predictedIndexes: number[];
+    intersection: number[];
+    precision: number;
+    recall: number;
+    f1: number;
+  };
 }
 
 interface ResponseDetailsModalProps {
   isOpen: boolean;
   onClose: () => void;
   details: ResponseDetails;
-  evaluationComparison?: EvaluationComparison;
 }
 
 export function ResponseDetailsModal({
   isOpen,
   onClose,
   details,
-  evaluationComparison,
 }: ResponseDetailsModalProps) {
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
@@ -62,9 +59,20 @@ export function ResponseDetailsModal({
                 <div className="space-y-2">
                   {details.matchedSentences.map((sentence, index) => (
                     <div key={index} className="flex items-start gap-2">
-                      <Badge variant="outline">
-                        {details.matchedIndexes[index] + 1}
-                      </Badge>
+                      <div className="flex items-center gap-2">
+                        <Badge
+                          variant="secondary"
+                          className="w-8 h-8 flex items-center justify-center"
+                        >
+                          {index}
+                        </Badge>
+                        <Badge
+                          variant="outline"
+                          className="w-8 h-8 flex items-center justify-center"
+                        >
+                          {details.matchedIndexes[index]}
+                        </Badge>
+                      </div>
                       <p className="text-sm">{sentence}</p>
                     </div>
                   ))}
@@ -72,64 +80,80 @@ export function ResponseDetailsModal({
               </CardContent>
             </Card>
 
-            {evaluationComparison && (
+            {details.evaluationComparison && (
               <Card>
                 <CardHeader>
-                  <CardTitle>Evaluation Results</CardTitle>
+                  <CardTitle>Evaluation Metrics</CardTitle>
                 </CardHeader>
                 <CardContent>
                   <div className="space-y-4">
                     <div>
                       <h4 className="font-medium mb-2">True Matches</h4>
                       <div className="flex flex-wrap gap-2">
-                        {evaluationComparison.trueIndexes.map((index) => (
-                          <Badge
-                            key={index}
-                            variant={
-                              evaluationComparison.intersection.includes(index)
-                                ? "default"
-                                : "outline"
-                            }
-                          >
-                            {index}
-                          </Badge>
-                        ))}
+                        {details.evaluationComparison.trueIndexes.map(
+                          (index) => (
+                            <Badge
+                              key={index}
+                              variant={
+                                details.evaluationComparison?.intersection.includes(
+                                  index
+                                )
+                                  ? "default"
+                                  : "outline"
+                              }
+                              className="w-8 h-8 flex items-center justify-center"
+                            >
+                              {index}
+                            </Badge>
+                          )
+                        )}
                       </div>
                     </div>
                     <div>
                       <h4 className="font-medium mb-2">Predicted Matches</h4>
                       <div className="flex flex-wrap gap-2">
-                        {evaluationComparison.predictedIndexes.map((index) => (
-                          <Badge
-                            key={index}
-                            variant={
-                              evaluationComparison.intersection.includes(index)
-                                ? "default"
-                                : "outline"
-                            }
-                          >
-                            {index + 1}
-                          </Badge>
-                        ))}
+                        {details.evaluationComparison.predictedIndexes.map(
+                          (index) => (
+                            <Badge
+                              key={index}
+                              variant={
+                                details.evaluationComparison?.intersection.includes(
+                                  index
+                                )
+                                  ? "default"
+                                  : "outline"
+                              }
+                              className="w-8 h-8 flex items-center justify-center"
+                            >
+                              {index}
+                            </Badge>
+                          )
+                        )}
                       </div>
                     </div>
                     <div className="grid grid-cols-3 gap-4">
                       <div>
                         <h4 className="font-medium">Precision</h4>
                         <p className="text-2xl font-bold">
-                          {(evaluationComparison.precision * 100).toFixed(1)}%
+                          {(
+                            details.evaluationComparison.precision * 100
+                          ).toFixed(1)}
+                          %
                         </p>
                       </div>
                       <div>
                         <h4 className="font-medium">Recall</h4>
                         <p className="text-2xl font-bold">
-                          {(evaluationComparison.recall * 100).toFixed(1)}%
+                          {(details.evaluationComparison.recall * 100).toFixed(
+                            1
+                          )}
+                          %
                         </p>
                       </div>
                       <div>
                         <h4 className="font-medium">F1 Score</h4>
                         <p className="text-2xl font-bold">
-                          {(evaluationComparison.f1 * 100).toFixed(1)}%
+                          {(details.evaluationComparison.f1 * 100).toFixed(1)}%
                         </p>
                       </div>
                     </div>

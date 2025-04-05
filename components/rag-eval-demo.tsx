@@ -31,27 +31,36 @@ import {
   BarChart2Icon,
   BrainIcon,
   MessageSquareIcon,
+  MenuIcon,
 } from "lucide-react";
 import { ResponseDetailsModal } from "@/components/response-details-modal";
 import { ApiKeyConfig } from "@/components/api-key-config";
 import { Slider } from "@/components/ui/slider";
+import { EvaluationTab } from "@/components/evaluation-tab";
+import { useToast } from "@/components/ui/use-toast";
+import { SentenceInput } from "@/components/sentence-input";
+import { VectorTable } from "@/components/vector-table";
+import { SimilarityTable } from "@/components/similarity-table";
+import { ChatInterface } from "@/components/chat-interface";
+import {
+  vectorizeSentences,
+  calculateSimilarityScores,
+  SentenceVector,
+  SimilarityScore,
+} from "@/lib/vectors";
+import { ThemeToggle } from "@/components/theme-provider";
+import { Footer } from "@/components/footer";
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+  SheetTrigger,
+} from "@/components/ui/sheet";
 
 interface Message {
   role: "user" | "assistant";
   content: string;
-}
-
-interface SentenceVector {
-  index: number;
-  sentence: string;
-  vector: Record<string, number>;
-}
-
-interface SimilarityScore {
-  index: number;
-  score: number;
-  rank: number;
-  sentence: string;
 }
 
 interface ResponseDetails {
@@ -91,6 +100,7 @@ export default function RagEvalDemo() {
     number | null
   >(null);
   const [hasApiKey, setHasApiKey] = useState<boolean>(false);
+  const { toast } = useToast();
 
   useEffect(() => {
     const apiKey = localStorage.getItem("geminiApiKey");
@@ -129,57 +139,24 @@ export default function RagEvalDemo() {
     setActiveTab("sentences");
   };
 
-  // Create dictionary and vectorize sentences
-  const vectorizeSentences = () => {
-    // Check if all sentences have content
+  const vectorize = () => {
     if (sentences.some((s) => s.trim() === "")) {
-      alert("Please fill in all sentence fields");
+      toast({
+        title: "Empty sentences",
+        description: "Please fill in all sentence fields",
+        variant: "destructive",
+      });
       return;
     }
 
-    // Create dictionary of unique words
-    const allWords = sentences
-      .join(" ")
-      .toLowerCase()
-      .replace(/[^\w\s]/g, "")
-      .split(/\s+/)
-      .filter((word) => word.length > 0);
-
-    const uniqueWords = Array.from(new Set(allWords)).sort();
-    setDictionary(uniqueWords);
-
-    // Create vectors for each sentence
-    const vectors: SentenceVector[] = sentences.map((sentence, index) => {
-      const words = sentence
-        .toLowerCase()
-        .replace(/[^\w\s]/g, "")
-        .split(/\s+/)
-        .filter((word) => word.length > 0);
-
-      const vector: Record<string, number> = {};
-
-      // Initialize all words with 0 count
-      uniqueWords.forEach((word) => {
-        vector[word] = 0;
-      });
-
-      // Count occurrences of each word
-      words.forEach((word) => {
-        if (uniqueWords.includes(word)) {
-          vector[word] += 1;
-        }
-      });
-
-      return {
-        index,
-        sentence,
-        vector,
-      };
-    });
-
+    const vectors = vectorizeSentences(sentences);
     setSentenceVectors(vectors);
     setVectorized(true);
     setActiveTab("vectors");
+    toast({
+      title: "Sentences vectorized",
+      description: "Your sentences have been successfully vectorized",
+    });
   };
 
   const getInitialMessage = () => {
@@ -236,148 +213,102 @@ export default function RagEvalDemo() {
     );
   };
 
-  // Process user query
-  const processQuery = async () => {
-    if (!userQuery.trim() || !vectorized) return;
-
-    const apiKey =
-      typeof window !== "undefined"
-        ? localStorage.getItem("geminiApiKey")
-        : null;
-    if (!apiKey) {
-      alert("Please set your Gemini API key first");
+  const processQuery = async (message: string) => {
+    if (!vectorized) {
+      toast({
+        title: "Not vectorized",
+        description: "Please vectorize your sentences first",
+        variant: "destructive",
+      });
       return;
     }
 
-    // Vectorize the query using the same dictionary
-    const queryWords = userQuery
-      .toLowerCase()
-      .replace(/[^\w\s]/g, "")
-      .split(/\s+/)
-      .filter((word) => word.length > 0);
+    const apiKey = localStorage.getItem("geminiApiKey");
+    if (!apiKey) {
+      toast({
+        title: "API key missing",
+        description: "Please set your Gemini API key first",
+        variant: "destructive",
+      });
+      return;
+    }
 
-    const vector: Record<string, number> = {};
-
-    // Initialize all words with 0 count
-    dictionary.forEach((word) => {
-      vector[word] = 0;
-    });
-
-    // Count occurrences of each word in query
-    queryWords.forEach((word) => {
-      if (dictionary.includes(word)) {
-        vector[word] += 1;
-      }
-    });
-
-    setQueryVector(vector);
-
-    // Calculate cosine similarity with each sentence vector
-    const scores: SimilarityScore[] = sentenceVectors.map((sv) => {
-      const similarity = calculateCosineSimilarity(vector, sv.vector);
-      return {
-        index: sv.index,
-        score: similarity,
-        rank: 0, // Will be set after sorting
-        sentence: sv.sentence,
-      };
-    });
-
-    // Sort by similarity score (descending)
-    const sortedScores = [...scores].sort((a, b) => b.score - a.score);
-
-    // Assign ranks
-    sortedScores.forEach((score, index) => {
-      score.rank = index + 1;
-    });
-
-    setSimilarityScores(sortedScores);
-
-    // Add user message
-    const newMessages: Message[] = [
-      ...messages,
-      { role: "user", content: userQuery },
-    ];
-    setMessages(newMessages);
-
-    // Get top N most relevant sentences for context
-    const topSentences = sortedScores
-      .slice(0, sentenceCount)
-      .map((s) => s.sentence);
-    const topIndexes = sortedScores.slice(0, sentenceCount).map((s) => s.index);
-
-    // Generate response using Gemini
     setIsLoading(true);
+    setMessages((prev) => [...prev, { role: "user", content: message }]);
+
     try {
+      // Create a new vector for the query
+      const queryVector = vectorizeSentences([message])[0].vector;
+
+      // Calculate similarity scores
+      const scores = calculateSimilarityScores(queryVector, sentenceVectors);
+
+      // Get top 3 matches
+      const topMatches = scores.sort((a, b) => b.score - a.score).slice(0, 3);
+
+      const matchedSentences = topMatches.map(
+        (score) => sentences[score.index]
+      );
+      const matchedIndexes = topMatches.map((score) => score.index);
+
+      // Prepare context for Gemini
+      const context = matchedSentences.join("\n");
+      const finalPrompt = `Context: ${context}\n\nUser query: ${message}`;
+
+      // Call Gemini API
       const response = await fetch("/api/gemini", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          prompt: userQuery,
-          context: topSentences.join(" | "),
+          prompt: message,
+          context,
           apiKey,
         }),
       });
 
       if (!response.ok) {
-        throw new Error(`API request failed with status ${response.status}`);
+        throw new Error("Failed to get response from Gemini");
       }
 
       const data = await response.json();
-      setMessages([...newMessages, { role: "assistant", content: data.text }]);
 
-      // Store response details
-      setResponseDetails([
-        ...responseDetails,
+      // Update messages
+      setMessages((prev) => [
+        ...prev,
+        { role: "assistant", content: data.text },
+      ]);
+
+      // Update response details
+      setResponseDetails((prev) => [
+        ...prev,
         {
-          userQuery,
-          matchedSentences: topSentences,
-          matchedIndexes: topIndexes,
-          finalPrompt: `Context: ${topSentences.join(
-            " "
-          )}\n\nUser question: ${userQuery}`,
+          userQuery: message,
+          matchedSentences,
+          matchedIndexes,
+          finalPrompt,
         },
       ]);
+
+      // Update similarity scores
+      setSimilarityScores(scores);
+
+      // Update UI with results
+      setActiveTab("similarity");
+      toast({
+        title: "Query processed",
+        description: "Response generated successfully",
+      });
     } catch (error) {
-      console.error("Error generating response:", error);
-      setMessages([
-        ...newMessages,
-        {
-          role: "assistant",
-          content:
-            "I'm sorry, I couldn't generate a response. Please try again.",
-        },
-      ]);
+      toast({
+        title: "Error",
+        description: "Failed to process query",
+        variant: "destructive",
+      });
+    } finally {
+      setIsLoading(false);
     }
-    setIsLoading(false);
-    setActiveTab("results");
-  };
-
-  // Calculate cosine similarity between two vectors
-  const calculateCosineSimilarity = (
-    vectorA: Record<string, number>,
-    vectorB: Record<string, number>
-  ) => {
-    let dotProduct = 0;
-    let magnitudeA = 0;
-    let magnitudeB = 0;
-
-    // Calculate dot product and magnitudes
-    Object.keys(vectorA).forEach((key) => {
-      dotProduct += vectorA[key] * vectorB[key];
-      magnitudeA += vectorA[key] * vectorA[key];
-      magnitudeB += vectorB[key] * vectorB[key];
-    });
-
-    magnitudeA = Math.sqrt(magnitudeA);
-    magnitudeB = Math.sqrt(magnitudeB);
-
-    // Avoid division by zero
-    if (magnitudeA === 0 || magnitudeB === 0) return 0;
-
-    return dotProduct / (magnitudeA * magnitudeB);
   };
 
   const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -404,6 +335,7 @@ export default function RagEvalDemo() {
 
   const handleQuestionClick = (question: string) => {
     setUserQuery(question);
+    processQuery(question);
   };
 
   const getEvaluationComparison = (
@@ -431,375 +363,191 @@ export default function RagEvalDemo() {
     };
   };
 
+  const handleDatasetGenerated = (data: any) => {
+    if (data.query_pairs) {
+      setEvaluationData(data.query_pairs);
+    }
+  };
+
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-      {/* Left side - Data and Evaluation */}
-      <div className="space-y-6">
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex justify-between items-center">
-              <span>RAG Data Configuration</span>
-              <div className="flex items-center gap-2">
-                <ApiKeyConfig />
-                <Button variant="outline" size="sm" onClick={resetData}>
-                  <Trash2Icon className="h-4 w-4 mr-2" />
-                  Reset All
+    <div className="flex h-screen overflow-hidden p-2">
+      {/* Mobile Header */}
+      <div className="md:hidden fixed top-0 left-0 right-0 z-50 bg-background border-b">
+        <div className="flex items-center justify-between p-4">
+          <h1 className="text-xl font-bold">RAG Evaluation Demo</h1>
+          <div className="flex items-center gap-2">
+            <ThemeToggle />
+            <Sheet>
+              <SheetTrigger asChild>
+                <Button variant="outline" size="icon">
+                  <MenuIcon className="h-4 w-4" />
                 </Button>
-              </div>
-            </CardTitle>
-            <CardDescription>
-              Configure your knowledge base with at least three sentences
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <Tabs
-              value={activeTab}
-              onValueChange={setActiveTab}
-              className="w-full"
-            >
-              <TabsList className="grid grid-cols-4 mb-4">
-                <TabsTrigger value="sentences">Sentences</TabsTrigger>
-                <TabsTrigger value="vectors" disabled={!vectorized}>
-                  Vectors
-                </TabsTrigger>
-                <TabsTrigger
-                  value="results"
-                  disabled={similarityScores.length === 0}
-                >
-                  Results
-                </TabsTrigger>
-                <TabsTrigger value="evaluations">Evaluations</TabsTrigger>
-              </TabsList>
-
-              <TabsContent value="sentences" className="space-y-4">
-                {sentences.map((sentence, index) => (
-                  <div key={index} className="flex items-center gap-2">
-                    <Badge
-                      variant="outline"
-                      className="shrink-0 w-6 h-6 flex items-center justify-center"
-                    >
-                      {index + 1}
-                    </Badge>
-                    <Input
-                      placeholder={`Enter sentence ${index + 1}`}
-                      value={sentence}
-                      onChange={(e) =>
-                        handleSentenceChange(index, e.target.value)
-                      }
-                    />
-                    {sentences.length > 3 && (
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => removeSentence(index)}
-                        className="shrink-0"
-                      >
-                        <Trash2Icon className="h-4 w-4" />
-                      </Button>
-                    )}
-                  </div>
-                ))}
-
-                <div className="flex justify-between">
-                  <Button onClick={addSentence} variant="outline">
-                    <PlusIcon className="h-4 w-4 mr-2" />
-                    Add Sentence
-                  </Button>
-                  <Button
-                    onClick={vectorizeSentences}
-                    disabled={sentences.some((s) => s.trim() === "")}
-                  >
-                    <BarChart2Icon className="h-4 w-4 mr-2" />
-                    Vectorize Sentences
-                  </Button>
-                </div>
-              </TabsContent>
-
-              <TabsContent value="vectors">
-                <div className="space-y-4">
-                  <Alert>
-                    <InfoIcon className="h-4 w-4" />
-                    <AlertTitle>Dictionary Created</AlertTitle>
-                    <AlertDescription>
-                      <span className="block mb-2">
-                        Unique words found: {dictionary.length}
-                      </span>
-                      <ScrollArea className="h-20 border rounded-md p-2">
-                        <div className="flex flex-wrap gap-1">
-                          {dictionary.map((word, i) => (
-                            <Badge key={i} variant="secondary">
-                              {word}
-                            </Badge>
-                          ))}
-                        </div>
-                      </ScrollArea>
-                    </AlertDescription>
-                  </Alert>
-
-                  <div>
-                    <h3 className="text-sm font-medium mb-2">
-                      Sentence Vectors (Count Vectorization)
-                    </h3>
-                    <div className="border rounded-md">
-                      <Table>
-                        <TableHeader>
-                          <TableRow>
-                            <TableHead className="w-16">Index</TableHead>
-                            <TableHead>Vector</TableHead>
-                          </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                          {sentenceVectors.map((sv) => (
-                            <TableRow key={sv.index}>
-                              <TableCell>{sv.index + 1}</TableCell>
-                              <TableCell>
-                                {sv.sentence}
-                                <ScrollArea className="h-6">
-                                  <code className="text-xs bg-muted p-1 rounded block">
-                                    {Object.values(sv.vector).join(", ")}
-                                  </code>
-                                </ScrollArea>
-                              </TableCell>
-                            </TableRow>
-                          ))}
-                        </TableBody>
-                      </Table>
-                    </div>
-                  </div>
-                </div>
-              </TabsContent>
-
-              <TabsContent value="results">
-                <div className="space-y-4">
-                  <div>
-                    <h3 className="text-sm font-medium mb-2">User Query</h3>
-                    <div className="p-3 bg-muted rounded-md">
-                      <p>{userQuery}</p>
-                    </div>
-                  </div>
-
-                  <div>
-                    <h3 className="text-sm font-medium mb-2">Query Vector</h3>
-                    <div className="p-3 bg-muted rounded-md">
-                      <code className="text-xs">
-                        {Object.entries(queryVector)
-                          .filter(([_, count]) => count > 0)
-                          .map(([word, count]) => `${word}:${count}`)
-                          .join(", ")}
-                      </code>
-                    </div>
-                  </div>
-
-                  <div>
-                    <h3 className="text-sm font-medium mb-2">
-                      Similarity Scores
-                    </h3>
-                    <div className="border rounded-md">
-                      <Table>
-                        <TableHeader>
-                          <TableRow>
-                            <TableHead className="w-16">Index</TableHead>
-                            <TableHead>Sentence</TableHead>
-                            <TableHead>Cosine Similarity</TableHead>
-                            <TableHead className="w-16">Rank</TableHead>
-                          </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                          {similarityScores.map((score) => (
-                            <TableRow key={score.index}>
-                              <TableCell>{score.index + 1}</TableCell>
-                              <TableCell className="max-w-[200px] truncate">
-                                {score.sentence}
-                              </TableCell>
-                              <TableCell>{score.score.toFixed(4)}</TableCell>
-                              <TableCell>
-                                <Badge
-                                  variant={
-                                    score.rank <= 2 ? "default" : "outline"
-                                  }
-                                >
-                                  {score.rank}
-                                </Badge>
-                              </TableCell>
-                            </TableRow>
-                          ))}
-                        </TableBody>
-                      </Table>
-                    </div>
-                  </div>
-                </div>
-              </TabsContent>
-
-              <TabsContent value="evaluations">
-                <div className="space-y-4">
-                  <div className="flex items-center gap-4">
-                    <Input
-                      type="file"
-                      accept=".json"
-                      onChange={handleFileUpload}
-                      className="max-w-sm"
-                    />
-                  </div>
-                  {evaluationData.length > 0 && (
-                    <Table>
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead>Question</TableHead>
-                          <TableHead>Expected Matches</TableHead>
-                          <TableHead>Actions</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {evaluationData.map((evalData, index) => (
-                          <TableRow key={index}>
-                            <TableCell>{evalData.question}</TableCell>
-                            <TableCell>
-                              {evalData.matched_indexes.join(", ")}
-                            </TableCell>
-                            <TableCell>
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={() =>
-                                  handleQuestionClick(evalData.question)
-                                }
-                              >
-                                Use in Chat
-                              </Button>
-                            </TableCell>
-                          </TableRow>
-                        ))}
-                      </TableBody>
-                    </Table>
-                  )}
-                </div>
-              </TabsContent>
-            </Tabs>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Right side - Testing Panel */}
-      <div>
-        <Card className="h-full flex flex-col">
-          <CardHeader>
-            <CardTitle className="flex justify-between items-center">
-              <span>Testing Panel</span>
-              <div className="flex items-center gap-4">
-                <div className="flex items-center gap-2">
-                  <span className="text-sm">Top {sentenceCount} sentences</span>
-                  <Slider
-                    value={[sentenceCount]}
-                    min={1}
-                    max={sentences.length}
-                    step={1}
-                    onValueChange={([value]) => setSentenceCount(value)}
-                    className="w-24"
+              </SheetTrigger>
+              <SheetContent side="right" className="w-[400px] p-0">
+                <SheetHeader className="p-4 border-b">
+                  <SheetTitle>Testing Panel</SheetTitle>
+                </SheetHeader>
+                <div className="h-full">
+                  <ChatInterface
+                    messages={messages}
+                    isLoading={isLoading}
+                    onSendMessage={processQuery}
+                    hasApiKey={hasApiKey}
+                    vectorized={vectorized}
+                    sentenceVectors={sentenceVectors}
+                    sentences={sentences}
+                    evaluationData={evaluationData}
                   />
                 </div>
+              </SheetContent>
+            </Sheet>
+          </div>
+        </div>
+      </div>
+
+      <div className="flex flex-1 overflow-hidden">
+        {/* Left side - Main content */}
+        <div className="flex-1 overflow-y-auto flex flex-col">
+          <div className="p-4 flex-1 md:pt-0 pt-16">
+            <div className="hidden md:flex items-center justify-between mb-6">
+              <h1 className="text-2xl font-bold">RAG Evaluation Demo</h1>
+              <div className="flex items-center gap-4">
+                <ThemeToggle />
+                <ApiKeyConfig>
+                  <Button variant="outline">
+                    {hasApiKey ? "Update API Key" : "Set API Key"}
+                  </Button>
+                </ApiKeyConfig>
               </div>
-            </CardTitle>
-            <CardDescription>
-              Test your RAG system by entering a query below
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="flex-grow overflow-hidden flex flex-col">
-            <ScrollArea className="flex-grow pr-4 mb-4">
-              {messages.length === 0 ? (
-                getInitialMessage()
-              ) : (
-                <div className="space-y-4">
-                  {messages.map((message, index) => (
-                    <div
-                      key={index}
-                      className={`flex ${
-                        message.role === "user"
-                          ? "justify-end"
-                          : "justify-start"
-                      }`}
-                    >
-                      <div
-                        className={`rounded-lg px-4 py-2 max-w-[80%] ${
-                          message.role === "user"
-                            ? "bg-primary text-primary-foreground"
-                            : "bg-muted"
-                        }`}
-                      >
-                        <div className="flex items-center gap-2">
-                          {message.content}
-                          {message.role === "assistant" && (
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="h-6 w-6"
-                              onClick={() => setSelectedResponseIndex(index)}
-                            >
-                              <InfoIcon className="h-4 w-4" />
-                            </Button>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                  {isLoading && (
-                    <div className="flex justify-start">
-                      <div className="rounded-lg px-4 py-2 bg-muted">
-                        <div className="flex space-x-2">
-                          <div className="w-2 h-2 rounded-full bg-current animate-bounce" />
-                          <div className="w-2 h-2 rounded-full bg-current animate-bounce [animation-delay:0.2s]" />
-                          <div className="w-2 h-2 rounded-full bg-current animate-bounce [animation-delay:0.4s]" />
-                        </div>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              )}
-            </ScrollArea>
-          </CardContent>
-          <CardFooter>
-            <div className="flex w-full gap-2">
-              <Input
-                placeholder="Enter your query..."
-                value={userQuery}
-                onChange={(e) => setUserQuery(e.target.value)}
-                disabled={
-                  !vectorized ||
-                  isLoading ||
-                  !localStorage.getItem("geminiApiKey")
-                }
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" && !e.shiftKey) {
-                    e.preventDefault();
-                    processQuery();
-                  }
-                }}
-              />
-              <Button
-                onClick={processQuery}
-                disabled={
-                  !vectorized ||
-                  !userQuery.trim() ||
-                  isLoading ||
-                  !localStorage.getItem("geminiApiKey")
-                }
-              >
-                <SendIcon className="h-4 w-4" />
-              </Button>
             </div>
-          </CardFooter>
-        </Card>
+
+            <Alert className="mb-6">
+              <InfoIcon className="h-4 w-4" />
+              <AlertTitle>How to use</AlertTitle>
+              <AlertDescription>
+                Enter your sentences, vectorize them, and then test the RAG
+                system by sending queries.
+              </AlertDescription>
+            </Alert>
+
+            <Tabs value={activeTab} onValueChange={setActiveTab}>
+              <TabsList className="grid w-full grid-cols-4">
+                <TabsTrigger value="sentences">
+                  <MessageSquareIcon className="h-4 w-4 mr-2" />
+                  Sentences
+                </TabsTrigger>
+                <TabsTrigger value="vectors" disabled={!vectorized}>
+                  <BrainIcon className="h-4 w-4 mr-2" />
+                  Vectors
+                </TabsTrigger>
+                <TabsTrigger value="similarity" disabled={!vectorized}>
+                  <BrainIcon className="h-4 w-4 mr-2" />
+                  Similarity
+                </TabsTrigger>
+                <TabsTrigger value="evaluation">
+                  <BarChart2Icon className="h-4 w-4 mr-2" />
+                  Evaluation
+                </TabsTrigger>
+              </TabsList>
+
+              <TabsContent value="sentences" className="mt-4">
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Sentence Management</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <SentenceInput
+                      sentences={sentences}
+                      onSentencesChange={setSentences}
+                    />
+                    <div className="mt-4 flex justify-end">
+                      <Button onClick={vectorize}>Vectorize Sentences</Button>
+                    </div>
+                  </CardContent>
+                </Card>
+              </TabsContent>
+
+              <TabsContent value="vectors" className="mt-4">
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Vectorized Sentences</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <VectorTable sentenceVectors={sentenceVectors} />
+                  </CardContent>
+                </Card>
+              </TabsContent>
+
+              <TabsContent value="similarity" className="mt-4">
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Similarity Scores</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    {similarityScores.length > 0 ? (
+                      <SimilarityTable similarityScores={similarityScores} />
+                    ) : (
+                      <div className="text-center text-muted-foreground p-4">
+                        No similarity scores to display. Please process a query
+                        first.
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+              </TabsContent>
+
+              <TabsContent value="evaluation" className="mt-4">
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Evaluation</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <EvaluationTab
+                      sentences={sentences}
+                      evaluationData={evaluationData}
+                      onQuestionClick={handleQuestionClick}
+                      onDatasetGenerated={handleDatasetGenerated}
+                    />
+                  </CardContent>
+                </Card>
+              </TabsContent>
+            </Tabs>
+          </div>
+
+          {/* Footer inside left panel */}
+          <Footer />
+        </div>
+
+        {/* Right side - Fixed Testing Panel (Desktop only) */}
+        <div className="hidden md:block w-[400px] border-l bg-background flex flex-col sticky top-0 h-screen">
+          <Card className="h-full rounded-none border-0 flex flex-col">
+            <CardHeader>
+              <CardTitle>Testing Panel</CardTitle>
+              <CardDescription>
+                Test your RAG system by entering a query below
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="flex-grow overflow-hidden flex flex-col">
+              <ChatInterface
+                messages={messages}
+                isLoading={isLoading}
+                onSendMessage={processQuery}
+                hasApiKey={hasApiKey}
+                vectorized={vectorized}
+                sentenceVectors={sentenceVectors}
+                sentences={sentences}
+                evaluationData={evaluationData}
+              />
+            </CardContent>
+          </Card>
+        </div>
       </div>
 
       {selectedResponseIndex !== null && (
         <ResponseDetailsModal
-          isOpen={selectedResponseIndex !== null}
+          isOpen={true}
+          details={responseDetails[selectedResponseIndex]}
           onClose={() => setSelectedResponseIndex(null)}
-          details={responseDetails[Math.floor(selectedResponseIndex / 2)]}
-          evaluationComparison={getEvaluationComparison(
-            responseDetails[Math.floor(selectedResponseIndex / 2)].userQuery,
-            responseDetails[Math.floor(selectedResponseIndex / 2)]
-              .matchedIndexes
-          )}
         />
       )}
     </div>
