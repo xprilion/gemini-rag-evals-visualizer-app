@@ -1,9 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
 import {
   Card,
   CardContent,
@@ -62,6 +61,11 @@ interface ResponseDetails {
   finalPrompt: string;
 }
 
+interface EvaluationData {
+  matched_indexes: number[];
+  question: string;
+}
+
 export default function RagEvalDemo() {
   const [sentences, setSentences] = useState<string[]>([
     "Rohan goes to school",
@@ -82,6 +86,16 @@ export default function RagEvalDemo() {
   const [activeTab, setActiveTab] = useState<string>("sentences");
   const [responseDetails, setResponseDetails] = useState<ResponseDetails[]>([]);
   const [sentenceCount, setSentenceCount] = useState(2);
+  const [evaluationData, setEvaluationData] = useState<EvaluationData[]>([]);
+  const [selectedResponseIndex, setSelectedResponseIndex] = useState<
+    number | null
+  >(null);
+  const [hasApiKey, setHasApiKey] = useState<boolean>(false);
+
+  useEffect(() => {
+    const apiKey = localStorage.getItem("geminiApiKey");
+    setHasApiKey(!!apiKey);
+  }, []);
 
   // Handle sentence input changes
   const handleSentenceChange = (index: number, value: string) => {
@@ -169,10 +183,6 @@ export default function RagEvalDemo() {
   };
 
   const getInitialMessage = () => {
-    const apiKey =
-      typeof window !== "undefined"
-        ? localStorage.getItem("geminiApiKey")
-        : null;
     const steps = [
       {
         text: "1. Set your Gemini API key",
@@ -183,7 +193,7 @@ export default function RagEvalDemo() {
             </Button>
           </ApiKeyConfig>
         ),
-        completed: !!apiKey,
+        completed: hasApiKey,
       },
       {
         text: "2. Vectorize your sentences",
@@ -370,6 +380,57 @@ export default function RagEvalDemo() {
     return dotProduct / (magnitudeA * magnitudeB);
   };
 
+  const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const data = JSON.parse(e.target?.result as string);
+        if (Array.isArray(data["query_pairs"])) {
+          setEvaluationData(data["query_pairs"]);
+        } else {
+          alert(
+            "Invalid JSON format. Expected an array of evaluation objects."
+          );
+        }
+      } catch (error) {
+        alert("Error parsing JSON file");
+      }
+    };
+    reader.readAsText(file);
+  };
+
+  const handleQuestionClick = (question: string) => {
+    setUserQuery(question);
+  };
+
+  const getEvaluationComparison = (
+    query: string,
+    predictedIndexes: number[]
+  ) => {
+    const evaluation = evaluationData.find((e) => e.question === query);
+    if (!evaluation) return undefined;
+
+    const trueIndexes = evaluation.matched_indexes;
+    const intersection = predictedIndexes.filter((index) =>
+      trueIndexes.includes(index + 1)
+    );
+    const precision = intersection.length / predictedIndexes.length;
+    const recall = intersection.length / trueIndexes.length;
+    const f1 = (2 * (precision * recall)) / (precision + recall);
+
+    return {
+      trueIndexes,
+      predictedIndexes,
+      intersection,
+      precision,
+      recall,
+      f1,
+    };
+  };
+
   return (
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
       {/* Left side - Data and Evaluation */}
@@ -391,8 +452,12 @@ export default function RagEvalDemo() {
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <Tabs value={activeTab} onValueChange={setActiveTab}>
-              <TabsList className="grid grid-cols-3 mb-4">
+            <Tabs
+              value={activeTab}
+              onValueChange={setActiveTab}
+              className="w-full"
+            >
+              <TabsList className="grid grid-cols-4 mb-4">
                 <TabsTrigger value="sentences">Sentences</TabsTrigger>
                 <TabsTrigger value="vectors" disabled={!vectorized}>
                   Vectors
@@ -403,6 +468,7 @@ export default function RagEvalDemo() {
                 >
                   Results
                 </TabsTrigger>
+                <TabsTrigger value="evaluations">Evaluations</TabsTrigger>
               </TabsList>
 
               <TabsContent value="sentences" className="space-y-4">
@@ -563,6 +629,51 @@ export default function RagEvalDemo() {
                   </div>
                 </div>
               </TabsContent>
+
+              <TabsContent value="evaluations">
+                <div className="space-y-4">
+                  <div className="flex items-center gap-4">
+                    <Input
+                      type="file"
+                      accept=".json"
+                      onChange={handleFileUpload}
+                      className="max-w-sm"
+                    />
+                  </div>
+                  {evaluationData.length > 0 && (
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Question</TableHead>
+                          <TableHead>Expected Matches</TableHead>
+                          <TableHead>Actions</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {evaluationData.map((evalData, index) => (
+                          <TableRow key={index}>
+                            <TableCell>{evalData.question}</TableCell>
+                            <TableCell>
+                              {evalData.matched_indexes.join(", ")}
+                            </TableCell>
+                            <TableCell>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() =>
+                                  handleQuestionClick(evalData.question)
+                                }
+                              >
+                                Use in Chat
+                              </Button>
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  )}
+                </div>
+              </TabsContent>
             </Tabs>
           </CardContent>
         </Card>
@@ -617,9 +728,14 @@ export default function RagEvalDemo() {
                         <div className="flex items-center gap-2">
                           {message.content}
                           {message.role === "assistant" && (
-                            <ResponseDetailsModal
-                              details={responseDetails[Math.floor(index / 2)]}
-                            />
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-6 w-6"
+                              onClick={() => setSelectedResponseIndex(index)}
+                            >
+                              <InfoIcon className="h-4 w-4" />
+                            </Button>
                           )}
                         </div>
                       </div>
@@ -673,6 +789,19 @@ export default function RagEvalDemo() {
           </CardFooter>
         </Card>
       </div>
+
+      {selectedResponseIndex !== null && (
+        <ResponseDetailsModal
+          isOpen={selectedResponseIndex !== null}
+          onClose={() => setSelectedResponseIndex(null)}
+          details={responseDetails[Math.floor(selectedResponseIndex / 2)]}
+          evaluationComparison={getEvaluationComparison(
+            responseDetails[Math.floor(selectedResponseIndex / 2)].userQuery,
+            responseDetails[Math.floor(selectedResponseIndex / 2)]
+              .matchedIndexes
+          )}
+        />
+      )}
     </div>
   );
 }
