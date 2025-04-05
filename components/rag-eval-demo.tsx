@@ -316,7 +316,7 @@ export default function RagEvalDemo() {
         },
         body: JSON.stringify({
           prompt: userQuery,
-          context: topSentences.join(" "),
+          context: topSentences.join(" | "),
           apiKey,
         }),
       });
